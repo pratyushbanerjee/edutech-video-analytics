@@ -16,7 +16,7 @@ while True:
 	ret, frame = cap.read()
 	time_elapsed = time.time() - prev
 
-	if time_elapsed > 1.0 / fps:
+	if time_elapsed >= 1.0 / fps:
 		prev = time.time()
 		cv2.imwrite('capture' + os.sep + str(time.time()) + '.jpg', frame)
 	
