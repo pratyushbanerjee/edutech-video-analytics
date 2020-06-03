@@ -7,7 +7,7 @@ cap.set(cv2.CAP_PROP_FPS, 1)
 time.sleep(2)
 
 fps = 1
-prev = 0
+prev = time.time()
 
 if os.path.isdir('capture') == False:
 	os.mkdir('capture')
