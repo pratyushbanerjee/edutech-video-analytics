@@ -1,0 +1,3 @@
+[submodule "deepgaze"]
+	path = deepgaze
+	url = https://github.com/mpatacchiola/deepgaze.git
