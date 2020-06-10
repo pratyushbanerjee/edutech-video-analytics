@@ -80,7 +80,7 @@ while True:
 			print(f"Match found: {match}")
 			top_left = (face_location[3], face_location[0])
 			bottom_right = (face_location[1], face_location[2])
-			color = [0,255, 0]
+			color = [0, 255, 0]
 			cv2.rectangle(image, top_left, bottom_right, color, FRAME_THICKNESS)
 
 			top_left = (face_location[3], face_location[2])

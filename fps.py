@@ -3,14 +3,12 @@ import os
 import time
 
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FPS, 1)
-time.sleep(2)
-
-fps = 1
-prev = time.time()
 
 if os.path.isdir('capture') == False:
 	os.mkdir('capture')
+
+fps = 1
+prev = time.time()
 
 while True:
 	ret, frame = cap.read()
