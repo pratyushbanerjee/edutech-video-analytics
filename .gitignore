@@ -1,3 +1,5 @@
 
 .ipynb_checkpoints/pose-checkpoint.ipynb
 .ipynb_checkpoints/Video-Capture-checkpoint.ipynb
+__pycache__/head_pose_estimation.cpython-38.pyc
+__pycache__/mod.cpython-38.pyc

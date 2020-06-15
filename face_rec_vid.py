@@ -2,6 +2,7 @@ import face_recognition
 import os
 import cv2
 import pickle
+import time
 
 KNOWN_FACES_DIR = "known_faces"
 
@@ -63,7 +64,7 @@ def findname(results, known_names):
 	print(prob)
 
 	return max([key for key in prob], key=(lambda key: prob[key]))
-
+prev = time.time()
 print("Processing unknown_faces")
 while True:
 	ret, image = video.read()
@@ -87,6 +88,9 @@ while True:
 			bottom_right = (face_location[1], face_location[2]+22)
 			cv2.rectangle(image, top_left, bottom_right, color, cv2.FILLED)
 			cv2.putText(image, match, (face_location[3]+10, face_location[2]+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), FONT_THICKNESS)
+
+	print(time.time() - prev)
+	prev = time.time()
 
 	cv2.imshow("filename", image)
 	if cv2.waitKey(1) & 0xFF == ord("q"):
