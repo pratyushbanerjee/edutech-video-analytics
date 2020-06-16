@@ -1,0 +1,7 @@
+CUDA 10.0
+cuDNN 7.6.5 for CUDA 10.0
+
+TensorFlow 1.14
+Deepgaze
+face_recognition
+dlib

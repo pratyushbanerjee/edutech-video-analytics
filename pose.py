@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import dlib
 from imutils import face_utils
+
 import imutils
 import deepgaze
 from deepgaze.head_pose_estimation import CnnHeadPoseEstimator
@@ -21,10 +22,6 @@ predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
 # %%
 sess = tf.Session()
 head_pose_estimator = CnnHeadPoseEstimator(sess)
-# head_pose_estimator.load_pitch_variables('./deepgaze/etc/tensorflow/head_pose/pitch/cnn_cccdd_30k.tf')
-# head_pose_estimator.load_yaw_variables('./deepgaze/etc/tensorflow/head_pose/yaw/cnn_cccdd_30k.tf')
-# head_pose_estimator.load_roll_variables('./deepgaze/etc/tensorflow/head_pose/roll/cnn_cccdd_30k.tf')
-
 head_pose_estimator.load_pitch_variables('pitch.tf')
 head_pose_estimator.load_yaw_variables('yaw.tf')
 head_pose_estimator.load_roll_variables('roll.tf')
@@ -58,7 +55,7 @@ while(True):
         yaw = head_pose_estimator.return_yaw(image,radians=True)[0][0][0]
         roll = head_pose_estimator.return_roll(image,radians=True)[0][0][0]
         
-        #print 'data points ', 'pitch : ', pitch, ' roll ', roll, ' yaw ', yaw
+        print('data points ', 'pitch ', pitch, ' roll ', roll, ' yaw ', yaw)
         
         FONT = cv2.FONT_HERSHEY_DUPLEX
         cv2.putText(frame, 'pitch = {:.2f}'.format(pitch), (20,25), FONT, 0.7, (0,255,0), 1)
