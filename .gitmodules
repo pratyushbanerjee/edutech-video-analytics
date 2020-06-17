@@ -1,3 +1,4 @@
-[submodule "deepgaze"]
-	path = deepgaze
-	url = https://github.com/mpatacchiola/deepgaze.git
+[submodule "GazeML"]
+	path = GazeML
+	url = https://github.com/swook/GazeML
+	branch = master
