@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""Main script for gaze direction inference from webcam feed."""
 import os
 import queue
 import threading
 import time
+import pickle
 
 import coloredlogs
 import cv2
@@ -14,15 +13,18 @@ import imutils
 from imutils import face_utils
 import deepgaze
 from deepgaze.head_pose_estimation import CnnHeadPoseEstimator
-from img_json import im2json, json2im
 import json
+from img_json import im2json, json2im
+import face_recognition
 
 from GazeML.src.datasources import Video, Webcam
 from GazeML.src.models import ELG
 import GazeML.src.util.gaze
 
 imgs_list = []
-# if __name__ == '__main__':
+if os.path.isdir('img_cap') == False:
+	os.mkdir('img_cap')
+
 def gaze():
 	
 	coloredlogs.install(
@@ -65,7 +67,7 @@ def gaze():
 			fps_history = []
 			all_gaze_histories = [list() for _ in range(2)]
 			gaze_history_max_len = 10
-			prev = time.time() + 5
+			prev = time.time() + 1
 			i = 0
 
 			while True:
@@ -78,6 +80,7 @@ def gaze():
 							cv2.imshow('vis', next_frame['bgr'])
 							last_frame_index = next_frame_index
 					if cv2.waitKey(1) & 0xFF == ord('q'):
+						cv2.destroyAllWindows()
 						return
 					continue
 
@@ -199,9 +202,10 @@ def gaze():
 							gaze_history = gaze_history[-gaze_history_max_len:]
 						GazeML.src.util.gaze.draw_gaze(bgr, iris_centre, np.mean(gaze_history, axis=0),
 											length=120.0, thickness=1)
-						gh = np.mean(gaze_history, axis=0)
-						gh = np.round(gh, 3)
-						print('{} pitch : {:6} yaw : {:6}'.format(j, gh[0], gh[1]))
+						if time.time() - prev > 1:
+							gh = np.mean(gaze_history, axis=0)
+							gh = np.round(gh, 3)
+							print('{} pitch : {:6} yaw : {:6}'.format(j, gh[0], gh[1]))
 
 					# else:
 					# 	gaze_history.clear()
@@ -256,6 +260,7 @@ def gaze():
 
 						# Quit?
 						if cv2.waitKey(1) & 0xFF == ord('q'):
+							cv2.destroyAllWindows()
 							return
 
 						# Print timings
@@ -288,18 +293,18 @@ def gaze():
 				if time.time() - prev > 1:
 					i += 1
 					prev = time.time()
-					cv2.imwrite(os.getcwd() + os.sep + 'gaze_capture' + os.sep + f'{i}.jpg', img)
+					cv2.imwrite(os.getcwd() + os.sep + 'img_cap' + os.sep + f'{i}.jpg', img)
 
 					jstr = im2json(img)
 					img_dict = json.loads(jstr)
 					img_dict['index'] = i
 					img_dict['left_eye'] = {
-						"pitch" : np.mean(left, axis=0)[0],
-						"yaw" : np.mean(left, axis=0)[1]
+						'pitch' : np.mean(left, axis=0)[0],
+						'yaw' : np.mean(left, axis=0)[1]
 					}
 					img_dict['right_eye'] = {
-						"pitch" : np.mean(right, axis=0)[0],
-						"yaw" : np.mean(right, axis=0)[1]
+						'pitch' : np.mean(right, axis=0)[0],
+						'yaw' : np.mean(right, axis=0)[1]
 					}
 
 					imgs_list.append(img_dict)
@@ -328,9 +333,146 @@ def gaze():
 			if not data_source._open:
 				break
 
+	cv2.destroyAllWindows()
+
+	with open("gaze.json", "w") as p: 
+		json.dump(imgs_list, p, indent = 4)
+
+
+def pose():
+	detector = dlib.get_frontal_face_detector()
+	predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
+
+	sess = tf.Session()
+	head_pose_estimator = CnnHeadPoseEstimator(sess)
+	head_pose_estimator.load_pitch_variables('pitch.tf')
+	head_pose_estimator.load_yaw_variables('yaw.tf')
+	head_pose_estimator.load_roll_variables('roll.tf')
+
+
+	with open("gaze.json", "r") as p: 
+		data_list = json.load(p)
+
+	for data in data_list:
+		frame = json2im(json.dumps(data))
+		frame = cv2.flip(frame, 1)
+		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+		(fh, fw) = frame.shape[:2]
+
+		faces = detector(gray, 0)
+
+		for face in faces:
+			(x, y, w, h) = face_utils.rect_to_bb(face)
+			cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+			image = frame[y:y + h, x:x + w]
+
+			try:
+				image = cv2.resize(image, (480,480))
+			except:
+				print('Exception')
+				continue
+
+			pitch = head_pose_estimator.return_pitch(image,radians=True)[0][0][0]
+			yaw = head_pose_estimator.return_yaw(image,radians=True)[0][0][0]
+			roll = head_pose_estimator.return_roll(image,radians=True)[0][0][0]
+			
+			print('data points ', 'pitch ', pitch, ' yaw ', yaw, ' roll ', roll)
+			
+			FONT = cv2.FONT_HERSHEY_DUPLEX
+			cv2.putText(frame, 'pitch = {:.2f}'.format(pitch), (20,25), FONT, 0.7, (0,255,0), 1)
+			cv2.putText(frame, 'yaw = {:.2f}'.format(yaw), (20,75), FONT, 0.7, (0,255,0), 1)
+			cv2.putText(frame, 'roll = {:.2f}'.format(roll), (20,50), FONT, 0.7, (0,255,0), 1)
+
+			if pitch < -0.15 or pitch > 0:
+				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+			if yaw < -0.5 or yaw > 0.5:
+				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+
+			data['pose'] = {
+				'pitch' : float(pitch),
+				'yaw' : float(yaw),
+				'roll' : float(roll)
+			}
+
+		if not faces:
+			data['pose'] = None
+
+	cv2.destroyAllWindows()   
+
+	with open("pose.json", "w") as p: 
+		json.dump(data_list, p, indent = 4)
+
+
+def face_rec():
+	KNOWN_FACES_DIR = "known_faces"
+
+	TOLERANCE = 0.45
+	FRAME_THICKNESS = 3
+	FONT_THICKNESS = 2
+	MODEL = "cnn"
+
+	print("Loading known faces")
+
+	known_faces = []
+	known_names = []
+
+	def train():
+		for name in os.listdir(KNOWN_FACES_DIR):
+			for filename in os.listdir(f"{KNOWN_FACES_DIR}/{name}"):
+				image = face_recognition.load_image_file(f"{KNOWN_FACES_DIR}/{name}/{filename}")
+				encoding = face_recognition.face_encodings(image)
+				if not encoding:
+					continue
+				else:
+					encoding = encoding[0]
+				known_faces.append(encoding)
+				known_names.append(name)
+
+		with open('known_faces.dat', 'wb') as f:
+			pickle.dump(known_faces, f)
+
+		with open('known_names.dat', 'wb') as f:
+			pickle.dump(known_names, f)
+
+	with open('known_faces.dat', 'rb') as f:
+		known_faces = pickle.load(f)
+
+	with open('known_names.dat', 'rb') as f:
+		known_names = pickle.load(f)
+
+	with open("gaze.json", "r") as p: 
+		data_list = json.load(p)
+
+	print("Processing unknown_faces")
+	for data in data_list:
+		image = json2im(json.dumps(data))
+
+		locations = face_recognition.face_locations(image, model=MODEL)
+		encodings = face_recognition.face_encodings(image, locations)
+
+		for face_encoding, face_location in zip(encodings, locations):
+			results = face_recognition.compare_faces(known_faces, face_encoding, TOLERANCE)
+			match = None
+			if True in results:
+				match = known_names[results.index(True)]
+				print(f"Match found: {match}")
+				top_left = (face_location[3], face_location[0])
+				bottom_right = (face_location[1], face_location[2])
+				color = [0, 255, 0]
+				cv2.rectangle(image, top_left, bottom_right, color, FRAME_THICKNESS)
+
+				top_left = (face_location[3], face_location[2])
+				bottom_right = (face_location[1], face_location[2]+22)
+				cv2.rectangle(image, top_left, bottom_right, color, cv2.FILLED)
+				cv2.putText(image, match, (face_location[3]+10, face_location[2]+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), FONT_THICKNESS)
+			data['name'] = match
+
+	cv2.destroyAllWindows()
+
+	with open("face_rec.json", "w") as p: 
+		json.dump(data_list, p, indent = 4)
+
+
 gaze()
-
-with open("gaze.json", "w") as p: 
-	json.dump(imgs_list, p, indent = 4)
-
-# pose():
+pose()
+face_rec()
