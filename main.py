@@ -397,8 +397,6 @@ def pose():
 		if not faces:
 			data['pose'] = None
 
-	cv2.destroyAllWindows()   
-
 	with open("pose.json", "w") as p: 
 		json.dump(data_list, p, indent = 4)
 
@@ -467,11 +465,8 @@ def face_rec():
 				cv2.putText(image, match, (face_location[3]+10, face_location[2]+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), FONT_THICKNESS)
 			data['name'] = match
 
-	cv2.destroyAllWindows()
-
 	with open("face_rec.json", "w") as p: 
 		json.dump(data_list, p, indent = 4)
-
 
 gaze()
 pose()
