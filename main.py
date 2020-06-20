@@ -57,7 +57,6 @@ def gaze():
 			],
 		)
 
-
 		# Begin visualization thread
 		inferred_stuff_queue = queue.Queue()
 
@@ -70,6 +69,39 @@ def gaze():
 			prev = time.time() + 1
 			i = 0
 
+			def write_json(img):
+				# Store gaze data in json file
+				nonlocal prev, i
+
+				if time.time() - prev > 1:
+					ghl = all_gaze_histories[0]
+					if len(ghl) > gaze_history_max_len:
+						ghl = ghl[-gaze_history_max_len:]
+					left = np.asarray(ghl)
+
+					ghr = all_gaze_histories[1]
+					if len(ghr) > gaze_history_max_len:
+						ghr = ghr[-gaze_history_max_len:]
+					right = np.asarray(ghr)
+					print(i)
+					i += 1
+					prev = time.time()
+					cv2.imwrite(os.getcwd() + os.sep + 'img_cap' + os.sep + f'{i}.jpg', img)
+
+					jstr = im2json(img)
+					img_dict = json.loads(jstr)
+					img_dict['index'] = i
+					img_dict['left_eye'] = {
+						'pitch' : np.mean(left, axis=0)[0],
+						'yaw' : np.mean(left, axis=0)[1]
+					} if left.any() else None
+					img_dict['right_eye'] = {
+						'pitch' : np.mean(right, axis=0)[0],
+						'yaw' : np.mean(right, axis=0)[1]
+					} if right.any() else None
+
+					imgs_list.append(img_dict)
+
 			while True:
 				# If no output to visualize, show unannotated frame
 				if inferred_stuff_queue.empty():
@@ -79,7 +111,10 @@ def gaze():
 						if 'faces' in next_frame and len(next_frame['faces']) == 0:
 							cv2.imshow('vis', next_frame['bgr'])
 							last_frame_index = next_frame_index
+						write_json(next_frame['bgr'])
 					if cv2.waitKey(1) & 0xFF == ord('q'):
+						prev = time.time() - 1
+						write_json(next_frame['bgr']*0)
 						cv2.destroyAllWindows()
 						return
 					continue
@@ -92,7 +127,7 @@ def gaze():
 					if frame_index not in data_source._frames:
 						continue
 					frame = data_source._frames[frame_index]
-					if j == 0:
+					if j == 0 and output['eye_index'][j] == 0:
 						img = frame['bgr'].copy()
 
 					# Decide which landmarks are usable
@@ -260,6 +295,8 @@ def gaze():
 
 						# Quit?
 						if cv2.waitKey(1) & 0xFF == ord('q'):
+							prev = time.time() - 1
+							write_json(img)
 							cv2.destroyAllWindows()
 							return
 
@@ -277,37 +314,7 @@ def gaze():
 							])
 							# print('%08d [%s] %s' % (frame_index, fps_str, timing_string))
 
-				ghl = all_gaze_histories[0]
-				if len(ghl) > gaze_history_max_len:
-					ghl = ghl[-gaze_history_max_len:]
-				left = np.asarray(ghl)
-
-				ghr = all_gaze_histories[1]
-				if len(ghr) > gaze_history_max_len:
-					ghr = ghr[-gaze_history_max_len:]
-				right = np.asarray(ghr)
-
-				if not left.any() or not right.any():
-					continue
-
-				if time.time() - prev > 1:
-					i += 1
-					prev = time.time()
-					cv2.imwrite(os.getcwd() + os.sep + 'img_cap' + os.sep + f'{i}.jpg', img)
-
-					jstr = im2json(img)
-					img_dict = json.loads(jstr)
-					img_dict['index'] = i
-					img_dict['left_eye'] = {
-						'pitch' : np.mean(left, axis=0)[0],
-						'yaw' : np.mean(left, axis=0)[1]
-					}
-					img_dict['right_eye'] = {
-						'pitch' : np.mean(right, axis=0)[0],
-						'yaw' : np.mean(right, axis=0)[1]
-					}
-
-					imgs_list.append(img_dict)
+				write_json(img)
 
 		visualize_thread = threading.Thread(target=_visualize_output, name='visualization')
 		visualize_thread.daemon = True
@@ -335,7 +342,7 @@ def gaze():
 
 	cv2.destroyAllWindows()
 
-	with open("gaze.json", "w") as p: 
+	with open("img_stats.json", "w") as p: 
 		json.dump(imgs_list, p, indent = 4)
 
 
@@ -350,12 +357,11 @@ def pose():
 	head_pose_estimator.load_roll_variables('roll.tf')
 
 
-	with open("gaze.json", "r") as p: 
+	with open("img_stats.json", "r") as p: 
 		data_list = json.load(p)
 
 	for data in data_list:
 		frame = json2im(json.dumps(data))
-		frame = cv2.flip(frame, 1)
 		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 		(fh, fw) = frame.shape[:2]
 
@@ -380,8 +386,8 @@ def pose():
 			
 			FONT = cv2.FONT_HERSHEY_DUPLEX
 			cv2.putText(frame, 'pitch = {:.2f}'.format(pitch), (20,25), FONT, 0.7, (0,255,0), 1)
-			cv2.putText(frame, 'yaw = {:.2f}'.format(yaw), (20,75), FONT, 0.7, (0,255,0), 1)
-			cv2.putText(frame, 'roll = {:.2f}'.format(roll), (20,50), FONT, 0.7, (0,255,0), 1)
+			cv2.putText(frame, 'yaw = {:.2f}'.format(yaw), (20,50), FONT, 0.7, (0,255,0), 1)
+			cv2.putText(frame, 'roll = {:.2f}'.format(roll), (20,75), FONT, 0.7, (0,255,0), 1)
 
 			if pitch < -0.15 or pitch > 0:
 				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
@@ -397,14 +403,14 @@ def pose():
 		if not faces:
 			data['pose'] = None
 
-	with open("pose.json", "w") as p: 
+	with open("img_stats.json", "w") as p: 
 		json.dump(data_list, p, indent = 4)
 
 
 def face_rec():
 	KNOWN_FACES_DIR = "known_faces"
 
-	TOLERANCE = 0.45
+	TOLERANCE = 0.5
 	FRAME_THICKNESS = 3
 	FONT_THICKNESS = 2
 	MODEL = "cnn"
@@ -438,7 +444,7 @@ def face_rec():
 	with open('known_names.dat', 'rb') as f:
 		known_names = pickle.load(f)
 
-	with open("gaze.json", "r") as p: 
+	with open("img_stats.json", "r") as p: 
 		data_list = json.load(p)
 
 	print("Processing unknown_faces")
@@ -448,9 +454,9 @@ def face_rec():
 		locations = face_recognition.face_locations(image, model=MODEL)
 		encodings = face_recognition.face_encodings(image, locations)
 
+		match = None
 		for face_encoding, face_location in zip(encodings, locations):
 			results = face_recognition.compare_faces(known_faces, face_encoding, TOLERANCE)
-			match = None
 			if True in results:
 				match = known_names[results.index(True)]
 				print(f"Match found: {match}")
@@ -463,9 +469,9 @@ def face_rec():
 				bottom_right = (face_location[1], face_location[2]+22)
 				cv2.rectangle(image, top_left, bottom_right, color, cv2.FILLED)
 				cv2.putText(image, match, (face_location[3]+10, face_location[2]+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), FONT_THICKNESS)
-			data['name'] = match
+		data['name'] = match
 
-	with open("face_rec.json", "w") as p: 
+	with open("img_stats.json", "w") as p: 
 		json.dump(data_list, p, indent = 4)
 
 gaze()
