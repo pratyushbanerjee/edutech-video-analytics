@@ -69,7 +69,7 @@ def gaze():
 			prev = time.time() + 1
 			i = 0
 
-			def write_json(img):
+			def make_dict(img):
 				# Store gaze data in json file
 				nonlocal prev, i
 
@@ -111,10 +111,10 @@ def gaze():
 						if 'faces' in next_frame and len(next_frame['faces']) == 0:
 							cv2.imshow('vis', next_frame['bgr'])
 							last_frame_index = next_frame_index
-						write_json(next_frame['bgr'])
+						make_dict(next_frame['bgr'])
 					if cv2.waitKey(1) & 0xFF == ord('q'):
 						prev = time.time() - 1
-						write_json(next_frame['bgr']*0)
+						make_dict(next_frame['bgr']*0)
 						cv2.destroyAllWindows()
 						return
 					continue
@@ -296,7 +296,7 @@ def gaze():
 						# Quit?
 						if cv2.waitKey(1) & 0xFF == ord('q'):
 							prev = time.time() - 1
-							write_json(img)
+							make_dict(img)
 							cv2.destroyAllWindows()
 							return
 
@@ -314,7 +314,7 @@ def gaze():
 							])
 							# print('%08d [%s] %s' % (frame_index, fps_str, timing_string))
 
-				write_json(img)
+				make_dict(img)
 
 		visualize_thread = threading.Thread(target=_visualize_output, name='visualization')
 		visualize_thread.daemon = True

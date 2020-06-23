@@ -9,7 +9,7 @@ import sys
 with open("img_stats.json", "r") as p: 
 		data_list = json.load(p)
 
-video_codec = cv2.VideoWriter_fourcc(*'H264')
+video_codec = cv2.VideoWriter_fourcc(*'XVID')
 fps=30
 out = None
 
@@ -124,7 +124,7 @@ for data in data_list:
 	else:
 		bad_pose += 1
 
-	print(bad_pose)
+	# print(bad_pose)
 
 	if bad_name >= 5:
 		print('CHEATING DETECTED: BAD USER')
@@ -147,18 +147,13 @@ for data in data_list:
 	if data['pose']:
 		print(data['index'], 'left', "{:.2f} {:.2f}".format(data['left_eye']['pitch'], data['left_eye']['yaw']) if data['left_eye'] else None)
 		print(data['index'], 'right', "{:.2f} {:.2f}".format(data['right_eye']['pitch'], data['right_eye']['yaw']) if data['right_eye'] else None)
-		print(data['index'], 'avg', 
-			"{:.2f} {:.2f}".format((data['left_eye']['pitch'] + data['right_eye']['pitch']) / 2, 
-				(data['left_eye']['yaw'] + data['right_eye']['yaw']) / 2) 
-			if data['right_eye'] and data['left_eye'] else None)
-		
-		
+
 		if data['left_eye']:
 			left_eye = data['left_eye']
 			left_eye_pitch = left_eye['pitch']
 			left_eye_yaw = left_eye['yaw']
 			if not -0.5 < left_eye_pitch < 0 or not -0.5 < left_eye_yaw < 0.5:
-				if abs(left_eye_pitch - prev_left_eye_pitch) < 0.2 or abs(left_eye_yaw - prev_left_eye_yaw) < 0.2:
+				if abs(left_eye_pitch - prev_left_eye_pitch) < 0.2 and abs(left_eye_yaw - prev_left_eye_yaw) < 0.2:
 					bad_left = True
 			else:
 				bad_left = False
@@ -172,7 +167,7 @@ for data in data_list:
 			right_eye_pitch = right_eye['pitch']
 			right_eye_yaw = right_eye['yaw']
 			if not -0.5 < right_eye_pitch < 0 or not -0.5 < right_eye_yaw < 0.5:
-				if abs(right_eye_pitch - prev_right_eye_pitch) < 0.2 or abs(right_eye_yaw - prev_right_eye_yaw) < 0.2:
+				if abs(right_eye_pitch - prev_right_eye_pitch) < 0.2 and abs(right_eye_yaw - prev_right_eye_yaw) < 0.2:
 					bad_right = True
 			else:
 				bad_right = False
@@ -185,13 +180,14 @@ for data in data_list:
 		else:
 			bad_gaze = 0
 
-	# print(bad_gaze)
+	print(bad_gaze)
 
+	# Draw frame statistics on video
 	draw()
 
 	(height, width) = frame.shape[:2]
 	if out is None:
-		out = cv2.VideoWriter('video.mp4', video_codec, fps, (width,height))
+		out = cv2.VideoWriter('video2.avi', video_codec, fps, (width,height))
 
 	frame_count = 0
 	time = 1                                                  
@@ -200,7 +196,7 @@ for data in data_list:
 		frame_count += 1
 
 	cv2.imshow('frame', frame)
-	if cv2.waitKey(0) & 0xFF == ord('q'):
+	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
 
 out.release()
