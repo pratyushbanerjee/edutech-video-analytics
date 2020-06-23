@@ -9,7 +9,7 @@ import sys
 with open("img_stats.json", "r") as p: 
 		data_list = json.load(p)
 
-video_codec = cv2.VideoWriter_fourcc(*'XVID')
+video_codec = cv2.VideoWriter_fourcc(*'mp4v')
 fps=30
 out = None
 
@@ -187,7 +187,7 @@ for data in data_list:
 
 	(height, width) = frame.shape[:2]
 	if out is None:
-		out = cv2.VideoWriter('video2.avi', video_codec, fps, (width,height))
+		out = cv2.VideoWriter(name + '.mp4', video_codec, fps, (width,height))
 
 	frame_count = 0
 	time = 1                                                  
