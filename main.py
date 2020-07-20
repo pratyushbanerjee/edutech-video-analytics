@@ -1,13 +1,17 @@
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2';
+import tensorflow.compat.v1 as tf
+tf.logging.set_verbosity(tf.logging.ERROR)
+
 import queue
 import threading
 import time
 import pickle
+import sys
 
 import coloredlogs
 import cv2
 import numpy as np
-import tensorflow as tf
 import dlib
 import imutils
 from imutils import face_utils
@@ -15,15 +19,22 @@ import deepgaze
 from deepgaze.head_pose_estimation import CnnHeadPoseEstimator
 import json
 from img_json import im2json, json2im
-import face_recognition
 
 from GazeML.src.datasources import Video, Webcam
 from GazeML.src.models import ELG
 import GazeML.src.util.gaze
 
+
 imgs_list = []
 if os.path.isdir('img_cap') == False:
 	os.mkdir('img_cap')
+else:
+	path = os.getcwd() + os.sep + 'img_cap'
+	for f in os.listdir(path):
+		os.remove(path + os.sep + f)
+
+if os.path.isdir('outputs') == False:
+	os.mkdir('outputs')
 
 def gaze():
 	
@@ -32,6 +43,16 @@ def gaze():
 		fmt='%(asctime)s %(levelname)s %(message)s',
 		level='INFO',
 	)
+
+	# Check if GPU is available
+	from tensorflow.python.client import device_lib
+	gpu_available = False
+	try:
+		gpus = [d for d in device_lib.list_local_devices()
+				if d.device_type == 'GPU']
+		gpu_available = len(gpus) > 0
+	except:
+		pass
 
 	with tf.Session() as session:
 
@@ -42,7 +63,7 @@ def gaze():
 		# Change data_format='NHWC' if not using CUDA
 		data_source = Webcam(tensorflow_session=session, batch_size=batch_size,
 							 camera_id=0, fps=60,
-							 data_format='NHWC',
+							 data_format='NCHW' if gpu_available else 'NHWC',
 							 eye_image_shape=(36, 60))
 
 		model = ELG(
@@ -69,6 +90,8 @@ def gaze():
 			prev = time.time() + 1
 			i = 0
 
+			print("\nGaze angle estimation started")
+
 			def make_dict(img):
 				# Store gaze data in json file
 				nonlocal prev, i
@@ -83,7 +106,8 @@ def gaze():
 					if len(ghr) > gaze_history_max_len:
 						ghr = ghr[-gaze_history_max_len:]
 					right = np.asarray(ghr)
-					print(i)
+					sys.stdout.write(f"\rCaptured frame {i}")
+					sys.stdout.flush()
 					i += 1
 					prev = time.time()
 					cv2.imwrite(os.getcwd() + os.sep + 'img_cap' + os.sep + f'{i}.jpg', img)
@@ -115,6 +139,7 @@ def gaze():
 					if cv2.waitKey(1) & 0xFF == ord('q'):
 						prev = time.time() - 1
 						make_dict(next_frame['bgr']*0)
+						print()
 						cv2.destroyAllWindows()
 						return
 					continue
@@ -237,10 +262,6 @@ def gaze():
 							gaze_history = gaze_history[-gaze_history_max_len:]
 						GazeML.src.util.gaze.draw_gaze(bgr, iris_centre, np.mean(gaze_history, axis=0),
 											length=120.0, thickness=1)
-						if time.time() - prev > 1:
-							gh = np.mean(gaze_history, axis=0)
-							gh = np.round(gh, 3)
-							print('{} pitch : {:6} yaw : {:6}'.format(j, gh[0], gh[1]))
 
 					# else:
 					# 	gaze_history.clear()
@@ -300,20 +321,6 @@ def gaze():
 							cv2.destroyAllWindows()
 							return
 
-						# Print timings
-						if frame_index % 60 == 0:
-							latency = _dtime('before_frame_read', 'after_visualization')
-							processing = _dtime('after_frame_read', 'after_visualization')
-							timing_string = ', '.join([
-								_dstr('read', 'before_frame_read', 'after_frame_read'),
-								_dstr('preproc', 'after_frame_read', 'after_preprocessing'),
-								'infer: %dms' % int(frame['time']['inference']),
-								'vis: %dms' % int(frame['time']['visualization']),
-								'proc: %dms' % processing,
-								'latency: %dms' % latency,
-							])
-							# print('%08d [%s] %s' % (frame_index, fps_str, timing_string))
-
 				make_dict(img)
 
 		visualize_thread = threading.Thread(target=_visualize_output, name='visualization')
@@ -340,140 +347,77 @@ def gaze():
 			if not data_source._open:
 				break
 
-	cv2.destroyAllWindows()
-
-	with open("img_stats.json", "w") as p: 
+	path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
+	with open(path, "w") as p: 
 		json.dump(imgs_list, p, indent = 4)
+
+	print('Gaze angle estimation complete\n')
 
 
 def pose():
+	models = os.getcwd() + os.sep + 'models'
 	detector = dlib.get_frontal_face_detector()
-	predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
+	predictor = dlib.shape_predictor(models + os.sep + 'shape_predictor_68_face_landmarks.dat')
 
-	sess = tf.Session()
-	head_pose_estimator = CnnHeadPoseEstimator(sess)
-	head_pose_estimator.load_pitch_variables('pitch.tf')
-	head_pose_estimator.load_yaw_variables('yaw.tf')
-	head_pose_estimator.load_roll_variables('roll.tf')
+	with tf.Session() as sess:
 
+		head_pose_estimator = CnnHeadPoseEstimator(sess)
+		head_pose_estimator.load_pitch_variables(models + os.sep + 'pitch.tf')
+		head_pose_estimator.load_yaw_variables(models + os.sep + 'yaw.tf')
+		head_pose_estimator.load_roll_variables(models + os.sep + 'roll.tf')
 
-	with open("img_stats.json", "r") as p: 
-		data_list = json.load(p)
+		path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
+		with open(path, "r") as p: 
+			data_list = json.load(p)
 
-	for data in data_list:
-		frame = json2im(json.dumps(data))
-		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-		(fh, fw) = frame.shape[:2]
+		print("Head pose estimation started")
 
-		faces = detector(gray, 0)
+		for data in data_list:
+			frame = json2im(json.dumps(data))
+			gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+			(fh, fw) = frame.shape[:2]
 
-		for face in faces:
-			(x, y, w, h) = face_utils.rect_to_bb(face)
-			cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-			image = frame[y:y + h, x:x + w]
+			faces = detector(gray, 0)
 
-			try:
-				image = cv2.resize(image, (480,480))
-			except:
-				print('Exception')
-				continue
+			for face in faces:
+				(x, y, w, h) = face_utils.rect_to_bb(face)
+				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+				image = frame[y:y + h, x:x + w]
 
-			pitch = head_pose_estimator.return_pitch(image,radians=True)[0][0][0]
-			yaw = head_pose_estimator.return_yaw(image,radians=True)[0][0][0]
-			roll = head_pose_estimator.return_roll(image,radians=True)[0][0][0]
-			
-			print('data points ', 'pitch ', pitch, ' yaw ', yaw, ' roll ', roll)
-			
-			FONT = cv2.FONT_HERSHEY_DUPLEX
-			cv2.putText(frame, 'pitch = {:.2f}'.format(pitch), (20,25), FONT, 0.7, (0,255,0), 1)
-			cv2.putText(frame, 'yaw = {:.2f}'.format(yaw), (20,50), FONT, 0.7, (0,255,0), 1)
-			cv2.putText(frame, 'roll = {:.2f}'.format(roll), (20,75), FONT, 0.7, (0,255,0), 1)
-
-			if pitch < -0.15 or pitch > 0:
-				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-			if yaw < -0.5 or yaw > 0.5:
-				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-
-			data['pose'] = {
-				'pitch' : float(pitch),
-				'yaw' : float(yaw),
-				'roll' : float(roll)
-			}
-
-		if not faces:
-			data['pose'] = None
-
-	with open("img_stats.json", "w") as p: 
-		json.dump(data_list, p, indent = 4)
-
-
-def face_rec():
-	KNOWN_FACES_DIR = "known_faces"
-
-	TOLERANCE = 0.5
-	FRAME_THICKNESS = 3
-	FONT_THICKNESS = 2
-	MODEL = "cnn"
-
-	print("Loading known faces")
-
-	known_faces = []
-	known_names = []
-
-	def train():
-		for name in os.listdir(KNOWN_FACES_DIR):
-			for filename in os.listdir(f"{KNOWN_FACES_DIR}/{name}"):
-				image = face_recognition.load_image_file(f"{KNOWN_FACES_DIR}/{name}/{filename}")
-				encoding = face_recognition.face_encodings(image)
-				if not encoding:
+				try:
+					image = cv2.resize(image, (480,480))
+				except:
+					print('Exception')
 					continue
-				else:
-					encoding = encoding[0]
-				known_faces.append(encoding)
-				known_names.append(name)
 
-		with open('known_faces.dat', 'wb') as f:
-			pickle.dump(known_faces, f)
+				pitch = head_pose_estimator.return_pitch(image,radians=True)[0][0][0]
+				yaw = head_pose_estimator.return_yaw(image,radians=True)[0][0][0]
+				roll = head_pose_estimator.return_roll(image,radians=True)[0][0][0]
+				
+				sys.stdout.write(f"\rProcessed frame {data['index']}")
+				sys.stdout.flush()
+				
+				FONT = cv2.FONT_HERSHEY_DUPLEX
 
-		with open('known_names.dat', 'wb') as f:
-			pickle.dump(known_names, f)
+				data['pose'] = {
+					'pitch' : float(pitch),
+					'yaw' : float(yaw),
+					'roll' : float(roll)
+				}
 
-	with open('known_faces.dat', 'rb') as f:
-		known_faces = pickle.load(f)
-
-	with open('known_names.dat', 'rb') as f:
-		known_names = pickle.load(f)
-
-	with open("img_stats.json", "r") as p: 
-		data_list = json.load(p)
-
-	print("Processing unknown_faces")
-	for data in data_list:
-		image = json2im(json.dumps(data))
-
-		locations = face_recognition.face_locations(image, model=MODEL)
-		encodings = face_recognition.face_encodings(image, locations)
-
-		match = None
-		for face_encoding, face_location in zip(encodings, locations):
-			results = face_recognition.compare_faces(known_faces, face_encoding, TOLERANCE)
-			if True in results:
-				match = known_names[results.index(True)]
-				print(f"Match found: {match}")
-				top_left = (face_location[3], face_location[0])
-				bottom_right = (face_location[1], face_location[2])
-				color = [0, 255, 0]
-				cv2.rectangle(image, top_left, bottom_right, color, FRAME_THICKNESS)
-
-				top_left = (face_location[3], face_location[2])
-				bottom_right = (face_location[1], face_location[2]+22)
-				cv2.rectangle(image, top_left, bottom_right, color, cv2.FILLED)
-				cv2.putText(image, match, (face_location[3]+10, face_location[2]+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), FONT_THICKNESS)
-		data['name'] = match
-
-	with open("img_stats.json", "w") as p: 
+			if not faces:
+				data['pose'] = None
+	
+	print("\nHead pose estimation complete\n")
+	
+	path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
+	with open(path, "w") as p: 
 		json.dump(data_list, p, indent = 4)
+
 
 gaze()
 pose()
-face_rec()
+
+print('Saved frame statistics to outputs/img_stats.json')
+print('Saved images to img_cap/')
+print('Done\n')

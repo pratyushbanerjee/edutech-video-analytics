@@ -5,16 +5,19 @@ import time
 import numpy as np
 import imutils
 import sys
+import time
+import os
 
-with open("img_stats.json", "r") as p: 
-		data_list = json.load(p)
+path = os.getcwd() + os.sep + 'outputs'
+with open(path + os.sep + 'img_stats.json', "r") as p: 
+	data_list = json.load(p)
 
 video_codec = cv2.VideoWriter_fourcc(*'mp4v')
 fps=30
 out = None
+filename = 'video' + str(time.time()) + '.mp4'
 
 bad_pose = 0
-bad_name = 0
 bad_left = True
 bad_right = True
 bad_gaze = 0
@@ -26,9 +29,6 @@ prev_right_eye_pitch = 0
 prev_right_eye_yaw = 0
 
 FONT = cv2.FONT_HERSHEY_DUPLEX
-
-# user_name = input('Enter name of test taker: ')
-user_name = sys.argv[1]
 
 def draw():
 
@@ -47,15 +47,6 @@ def draw():
 		cv2.putText(frame, 'FACE NOT DETECTED', (20,30), FONT, 1, (0,0,255), 1)
 
 	if data['pose']:
-		if data['name']:
-			if name != user_name:
-				cv2.putText(frame, f'name = {name}', (20,30), FONT, 1, (0,0,255), 1)
-			else:
-				cv2.putText(frame, f'name = {name}', (20,30), FONT, 1, (0,255,0), 1)
-		else:
-			cv2.putText(frame, 'name = UNKNOWN', (20,30), FONT, 1, (0,0,255), 1)
-
-	if data['pose']:
 		if data['left_eye']:
 			if -0.5 < left_eye_pitch < 0:
 				cv2.putText(frame, f'left eye pitch = {left_eye_pitch:.2f}', (20,120), FONT, 1, (0,255,0), 1)
@@ -68,7 +59,6 @@ def draw():
 				cv2.putText(frame, f'left eye yaw = {left_eye_yaw:.2f}', (20,150), FONT, 1, (0,0,255), 1)
 		else:
 			cv2.putText(frame, 'left eye not detected', (20,120), FONT, 1, (0,0,0), 1)
-			# cv2.putText(frame, 'left eye yaw = NOT DETECTED', (20,150), FONT, 1, (0,0,0), 1)
 
 		if data['right_eye']:
 			if -0.5 < right_eye_pitch < 0:
@@ -83,13 +73,9 @@ def draw():
 
 		else:
 			cv2.putText(frame, 'right eye not detected', (20,180), FONT, 1, (0,0,0), 1)
-			# cv2.putText(frame, 'right eye yaw = NOT DETECTED', (20,175), FONT, 1, (0,0,0), 1)
 
 	if bad_pose >= 5:
 		cv2.putText(frame, 'CHEATING DETECTED: BAD POSE', (20,fh-10), FONT, 1, (0,0,255), 1)
-
-	if bad_name >= 5:
-		cv2.putText(frame, 'CHEATING DETECTED: BAD USER', (20,fh-40), FONT, 1, (0,0,255), 1)
 
 	if bad_gaze >= 5:
 		cv2.putText(frame, 'CHEATING DETECTED: BAD GAZE', (20,fh-70), FONT, 1, (0,0,255), 1)
@@ -98,16 +84,6 @@ def draw():
 for data in data_list:
 	frame = json2im(json.dumps(data))
 	frame = imutils.resize(frame, height = 720)
-	# for key in data.keys():
-	# 	if isinstance(data[key], str):
-	# 		print(key, data[key][:20])
-	# 	elif data[key]:
-	# 		print(key, data[key])
-	# 	else:
-	# 		print(key, "None")
-
-	if bad_pose >= 5:
-		print('CHEATING DETECTED: BAD POSE')
 
 	if data['pose']:
 		pitch = data['pose']['pitch']		
@@ -123,31 +99,8 @@ for data in data_list:
 		prev_yaw = yaw
 	else:
 		bad_pose += 1
-
-	# print(bad_pose)
-
-	if bad_name >= 5:
-		print('CHEATING DETECTED: BAD USER')
-
-	if data['pose']:
-		if data['name']:
-			name = data['name']
-			if name != user_name:
-				bad_name += 1
-			else:
-				bad_name = 0
-		else:
-			bad_name += 1
-
-	# print(bad_name)
-
-	if bad_gaze >= 5:
-		print('CHEATING DETECTED: BAD GAZE')
 	
 	if data['pose']:
-		print(data['index'], 'left', "{:.2f} {:.2f}".format(data['left_eye']['pitch'], data['left_eye']['yaw']) if data['left_eye'] else None)
-		print(data['index'], 'right', "{:.2f} {:.2f}".format(data['right_eye']['pitch'], data['right_eye']['yaw']) if data['right_eye'] else None)
-
 		if data['left_eye']:
 			left_eye = data['left_eye']
 			left_eye_pitch = left_eye['pitch']
@@ -180,14 +133,16 @@ for data in data_list:
 		else:
 			bad_gaze = 0
 
-	print(bad_gaze)
+	sys.stdout.write(f"\rChecked frame {data['index']}")
+	sys.stdout.flush()
 
 	# Draw frame statistics on video
 	draw()
 
 	(height, width) = frame.shape[:2]
 	if out is None:
-		out = cv2.VideoWriter(name + '.mp4', video_codec, fps, (width,height))
+		out = cv2.VideoWriter(path + os.sep + filename, video_codec, fps, (width,height))
+
 
 	frame_count = 0
 	time = 1                                                  
@@ -199,7 +154,7 @@ for data in data_list:
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
 
+cv2.destroyAllWindows()
 out.release()
-
-
-
+print(f"\nOutput saved as outputs/{filename}")
+print('Done\n')
