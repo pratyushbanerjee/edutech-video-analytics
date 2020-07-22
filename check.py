@@ -27,6 +27,7 @@ prev_left_eye_pitch = 0
 prev_left_eye_yaw = 0
 prev_right_eye_pitch = 0
 prev_right_eye_yaw = 0
+stress_level = 0
 
 FONT = cv2.FONT_HERSHEY_DUPLEX
 
@@ -73,6 +74,13 @@ def draw():
 
 		else:
 			cv2.putText(frame, 'right eye not detected', (20,180), FONT, 1, (0,0,0), 1)
+
+	if data['pose']:
+		if stress_level and 0 < stress_level < 1:
+			if stress_level < 0.75:
+				cv2.putText(frame, f'stress level = {stress_level:.2f}', (20,240), FONT, 1, (0,255,0), 1)
+			else:
+				cv2.putText(frame, f'stress level = {stress_level:.2f}', (20,240), FONT, 1, (0,0,255), 1)
 
 	if bad_pose >= 5:
 		cv2.putText(frame, 'CHEATING DETECTED: BAD POSE', (20,fh-10), FONT, 1, (0,0,255), 1)
@@ -132,6 +140,9 @@ for data in data_list:
 			bad_gaze += 1
 		else:
 			bad_gaze = 0
+
+	if data['pose']:
+		stress_level = data['stress']
 
 	sys.stdout.write(f"\rChecked frame {data['index']}")
 	sys.stdout.flush()

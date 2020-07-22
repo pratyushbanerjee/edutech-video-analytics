@@ -36,6 +36,8 @@ else:
 if os.path.isdir('outputs') == False:
 	os.mkdir('outputs')
 
+img_stats = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
+
 def gaze():
 	
 	coloredlogs.install(
@@ -139,7 +141,6 @@ def gaze():
 					if cv2.waitKey(1) & 0xFF == ord('q'):
 						prev = time.time() - 1
 						make_dict(next_frame['bgr']*0)
-						print()
 						cv2.destroyAllWindows()
 						return
 					continue
@@ -347,11 +348,10 @@ def gaze():
 			if not data_source._open:
 				break
 
-	path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
-	with open(path, "w") as p: 
+	with open(img_stats, "w") as p: 
 		json.dump(imgs_list, p, indent = 4)
 
-	print('Gaze angle estimation complete\n')
+	print('\nGaze angle estimation complete\n')
 
 
 def pose():
@@ -366,8 +366,7 @@ def pose():
 		head_pose_estimator.load_yaw_variables(models + os.sep + 'yaw.tf')
 		head_pose_estimator.load_roll_variables(models + os.sep + 'roll.tf')
 
-		path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
-		with open(path, "r") as p: 
+		with open(img_stats, "r") as p: 
 			data_list = json.load(p)
 
 		print("Head pose estimation started")
@@ -410,13 +409,81 @@ def pose():
 	
 	print("\nHead pose estimation complete\n")
 	
-	path = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
-	with open(path, "w") as p: 
+	with open(img_stats, "w") as p: 
+		json.dump(data_list, p, indent = 4)
+
+
+def stress():
+	
+	def eye_brow_distance(leye,reye):
+		nonlocal points
+		distq = np.linalg.norm(np.array(leye) - np.array(reye))
+		points.append(int(distq))
+		return distq
+
+	def normalize_values(points,disp):
+		normalized_value = abs(disp - np.min(points))/abs(np.max(points) - np.min(points) + 1e-10)
+		stress_value = np.exp(-(normalized_value))
+		if stress_value>=0.75:
+			return stress_value,"High Stress"
+		else:
+			return stress_value,"Low Stress"
+
+	models = os.getcwd() + os.sep + 'models'
+	detector = dlib.get_frontal_face_detector()
+	predictor = dlib.shape_predictor(models + os.sep + 'shape_predictor_68_face_landmarks.dat')
+
+	with open(img_stats, "r") as p: 
+		data_list = json.load(p)
+	points = []
+
+	print("Stress detection started")
+
+	for data in data_list:
+		frame = json2im(json.dumps(data))
+		frame = cv2.flip(frame,1)
+		frame = imutils.resize(frame, width=500,height=500)
+
+		(lBegin, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eyebrow"]
+		(rBegin, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eyebrow"]
+
+		#preprocessing the image
+		gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+
+		detections = detector(gray,0)
+		for detection in detections:
+			shape = predictor(frame,detection)
+			shape = face_utils.shape_to_np(shape)
+
+			leyebrow = shape[lBegin:lEnd]
+			reyebrow = shape[rBegin:rEnd]
+
+			reyebrowhull = cv2.convexHull(reyebrow)
+			leyebrowhull = cv2.convexHull(leyebrow)
+
+			cv2.drawContours(frame, [reyebrowhull], -1, (0, 255, 0), 1)
+			cv2.drawContours(frame, [leyebrowhull], -1, (0, 255, 0), 1)
+
+			distq = eye_brow_distance(leyebrow[-1],reyebrow[0])
+			stress_value,stress_label = normalize_values(points,distq)
+
+			sys.stdout.write(f"\rProcessed frame {data['index']}")
+			sys.stdout.flush()
+			
+			data['stress'] = float(stress_value)
+		
+		if not detections:
+			data['stress'] = None
+			
+	print("\nStress detection complete\n")
+
+	with open(img_stats, "w") as p: 
 		json.dump(data_list, p, indent = 4)
 
 
 gaze()
 pose()
+stress()
 
 print('Saved frame statistics to outputs/img_stats.json')
 print('Saved images to img_cap/')
