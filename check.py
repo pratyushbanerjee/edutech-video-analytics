@@ -1,11 +1,9 @@
 import cv2
 import json
-from img_json import im2json, json2im
+from img_json import json2im
 import time
-import numpy as np
 import imutils
 import sys
-import time
 import os
 
 path = os.getcwd() + os.sep + 'outputs'
@@ -13,7 +11,7 @@ with open(path + os.sep + 'img_stats.json', "r") as p:
 	data_list = json.load(p)
 
 video_codec = cv2.VideoWriter_fourcc(*'mp4v')
-fps=30
+fps = 30
 out = None
 filename = 'video' + str(time.time()) + '.mp4'
 
@@ -31,11 +29,13 @@ stress_level = 0
 
 FONT = cv2.FONT_HERSHEY_DUPLEX
 
+data = None
+
 def draw():
 
-	fh, fw = frame.shape[:2]
+	fh, _ = frame.shape[:2]
 
-	if(data['pose']):
+	if data['pose']:
 		if -0.15 < pitch < 0:
 			cv2.putText(frame, f'pitch = {pitch:.2f}', (20,60), FONT, 1, (0,255,0), 1)
 		else:
@@ -160,7 +160,7 @@ for data in data_list:
 	while(frame_count < time * fps):
 		out.write(frame)
 		frame_count += 1
-
+	
 	cv2.imshow('frame', frame)
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break

@@ -1,5 +1,5 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2';
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow.compat.v1 as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
 
@@ -11,64 +11,48 @@ import sys
 import coloredlogs
 import cv2
 import numpy as np
-import dlib
-import imutils
-from imutils import face_utils
-import deepgaze
-from deepgaze.head_pose_estimation import CnnHeadPoseEstimator
 import json
-from img_json import im2json, json2im
 
-from GazeML.src.datasources import Video, Webcam
+from GazeML.src.datasources import Video
 from GazeML.src.models import ELG
 import GazeML.src.util.gaze
 
-
-imgs_list = []
-if os.path.isdir('img_cap') == False:
-	os.mkdir('img_cap')
-else:
-	path = os.getcwd() + os.sep + 'img_cap'
-	for f in os.listdir(path):
-		os.remove(path + os.sep + f)
-
-if os.path.isdir('outputs') == False:
-	os.mkdir('outputs')
-
-img_stats = os.getcwd() + os.sep + 'outputs' + os.sep + 'img_stats.json'
-
-def gaze():
+class GazeAngleEstimator:
 	
-	coloredlogs.install(
-		datefmt='%d/%m %H:%M',
-		fmt='%(asctime)s %(levelname)s %(message)s',
-		level='INFO',
-	)
+	def __init__(self):
 
-	# Check if GPU is available
-	from tensorflow.python.client import device_lib
-	gpu_available = False
-	try:
-		gpus = [d for d in device_lib.list_local_devices()
-				if d.device_type == 'GPU']
-		gpu_available = len(gpus) > 0
-	except:
-		pass
+		self.session = tf.Session()
+		self.imgs_list = []
 
-	with tf.Session() as session:
+		coloredlogs.install(
+			datefmt='%d/%m %H:%M',
+			fmt='%(asctime)s %(levelname)s %(message)s',
+			level='INFO',
+		)
 
-		# Declare some parameters
-		batch_size = 2
+		# Check if GPU is available
+		from tensorflow.python.client import device_lib
+		self.gpu_available = False
+		try:
+			gpus = [d for d in device_lib.list_local_devices()
+					if d.device_type == 'GPU']
+			self.gpu_available = len(gpus) > 0
+		except:
+			pass
 
-		# Define webcam stream data source
+		self.batch_size = 2
+
+	def predict(self, video):
+
+		# Define video data source
 		# Change data_format='NHWC' if not using CUDA
-		data_source = Webcam(tensorflow_session=session, batch_size=batch_size,
-							 camera_id=0, fps=60,
-							 data_format='NCHW' if gpu_available else 'NHWC',
-							 eye_image_shape=(36, 60))
+		data_source = Video(video,
+							tensorflow_session=self.session, batch_size=self.batch_size,
+							data_format='NCHW' if self.gpu_available else 'NHWC',
+							eye_image_shape=(36, 60))
 
 		model = ELG(
-			session, train_data={'videostream': data_source},
+			self.session, train_data={'videostream': data_source},
 			first_layer_stride=1,
 			num_modules=2,
 			num_feature_maps=32,
@@ -88,16 +72,17 @@ def gaze():
 			fps_history = []
 			all_gaze_histories = [list() for _ in range(2)]
 			gaze_history_max_len = 10
-			prev = time.time() + 1
 			i = 0
+			prev = 0
+			frame_index = 0
 
-			print("\nGaze angle estimation started")
+			print('\nGaze angle estimation started')
 
-			def make_dict(img):
+			def make_dict():
 				# Store gaze data in json file
-				nonlocal prev, i
+				nonlocal i, prev
 
-				if time.time() - prev > 1:
+				if frame_index - prev >= 30:
 					ghl = all_gaze_histories[0]
 					if len(ghl) > gaze_history_max_len:
 						ghl = ghl[-gaze_history_max_len:]
@@ -107,14 +92,11 @@ def gaze():
 					if len(ghr) > gaze_history_max_len:
 						ghr = ghr[-gaze_history_max_len:]
 					right = np.asarray(ghr)
-					sys.stdout.write(f"\rCaptured frame {i}")
+					sys.stdout.write(f'\rProcessed frame {i}\t')
 					sys.stdout.flush()
 					i += 1
-					prev = time.time()
-					cv2.imwrite(os.getcwd() + os.sep + 'img_cap' + os.sep + f'{i}.jpg', img)
-
-					jstr = im2json(img)
-					img_dict = json.loads(jstr)
+					prev = frame_index
+					img_dict = dict()
 					img_dict['index'] = i
 					img_dict['left_eye'] = {
 						'pitch' : np.mean(left, axis=0)[0],
@@ -125,7 +107,7 @@ def gaze():
 						'yaw' : np.mean(right, axis=0)[1]
 					} if right.any() else None
 
-					imgs_list.append(img_dict)
+					self.imgs_list.append(img_dict)
 
 			while True:
 				# If no output to visualize, show unannotated frame
@@ -136,10 +118,8 @@ def gaze():
 						if 'faces' in next_frame and len(next_frame['faces']) == 0:
 							cv2.imshow('vis', next_frame['bgr'])
 							last_frame_index = next_frame_index
-						make_dict(next_frame['bgr'])
+						make_dict()
 					if cv2.waitKey(1) & 0xFF == ord('q'):
-						prev = time.time() - 1
-						make_dict(next_frame['bgr']*0)
 						cv2.destroyAllWindows()
 						return
 					continue
@@ -147,7 +127,7 @@ def gaze():
 				# Get output from neural network and visualize
 				output = inferred_stuff_queue.get()
 				bgr = None
-				for j in range(batch_size):
+				for j in range(self.batch_size):
 					frame_index = output['frame_index'][j]
 					if frame_index not in data_source._frames:
 						continue
@@ -316,12 +296,10 @@ def gaze():
 
 						# Quit?
 						if cv2.waitKey(1) & 0xFF == ord('q'):
-							prev = time.time() - 1
-							make_dict(img)
 							cv2.destroyAllWindows()
 							return
 
-				make_dict(img)
+				make_dict()
 
 		visualize_thread = threading.Thread(target=_visualize_output, name='visualization')
 		visualize_thread.daemon = True
@@ -347,139 +325,13 @@ def gaze():
 			if not data_source._open:
 				break
 
-	with open(img_stats, "w") as p: 
-		json.dump(imgs_list, p, indent = 4)
-
-	print('\nGaze angle estimation complete\n')
+		print('\nGaze angle estimation complete')
 
 
-def pose():
-	models = os.getcwd() + os.sep + 'models'
-	detector = dlib.get_frontal_face_detector()
-	predictor = dlib.shape_predictor(models + os.sep + 'shape_predictor_68_face_landmarks.dat')
+	def save_data(self):
 
-	with tf.Session() as sess:
+		with open('gaze.json', 'w') as p: 
+			json.dump(self.imgs_list, p, indent = 4)
 
-		head_pose_estimator = CnnHeadPoseEstimator(sess)
-		head_pose_estimator.load_pitch_variables(models + os.sep + 'pitch.tf')
-		head_pose_estimator.load_yaw_variables(models + os.sep + 'yaw.tf')
-		head_pose_estimator.load_roll_variables(models + os.sep + 'roll.tf')
+		print('Data saved as gaze.json')
 
-		with open(img_stats, "r") as p: 
-			data_list = json.load(p)
-
-		print("Head pose estimation started")
-
-		for data in data_list:
-			data['pose'] = None
-			frame = json2im(json.dumps(data))
-			gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-			(fh, fw) = frame.shape[:2]
-
-			faces = detector(gray, 0)
-
-			for face in faces:
-				(x, y, w, h) = face_utils.rect_to_bb(face)
-				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-				image = frame[y:y + h, x:x + w]
-
-				try:
-					image = cv2.resize(image, (480,480))
-				except:
-					print('Exception')
-					continue
-
-				pitch = head_pose_estimator.return_pitch(image,radians=True)[0][0][0]
-				yaw = head_pose_estimator.return_yaw(image,radians=True)[0][0][0]
-				roll = head_pose_estimator.return_roll(image,radians=True)[0][0][0]
-				
-				sys.stdout.write(f"\rProcessed frame {data['index']}")
-				sys.stdout.flush()
-				
-				FONT = cv2.FONT_HERSHEY_DUPLEX
-
-				data['pose'] = {
-					'pitch' : float(pitch),
-					'yaw' : float(yaw),
-					'roll' : float(roll)
-				}
-	
-	print("\nHead pose estimation complete\n")
-	
-	with open(img_stats, "w") as p: 
-		json.dump(data_list, p, indent = 4)
-
-
-def stress():
-	
-	def eye_brow_distance(leye,reye):
-		nonlocal points
-		distq = np.linalg.norm(np.array(leye) - np.array(reye))
-		points.append(int(distq))
-		return distq
-
-	def normalize_values(points,disp):
-		normalized_value = abs(disp - np.min(points))/abs(np.max(points) - np.min(points) + 1e-10)
-		stress_value = np.exp(-(normalized_value))
-		if stress_value>=0.75:
-			return stress_value,"High Stress"
-		else:
-			return stress_value,"Low Stress"
-
-	models = os.getcwd() + os.sep + 'models'
-	detector = dlib.get_frontal_face_detector()
-	predictor = dlib.shape_predictor(models + os.sep + 'shape_predictor_68_face_landmarks.dat')
-
-	with open(img_stats, "r") as p: 
-		data_list = json.load(p)
-	points = []
-
-	print("Stress detection started")
-
-	for data in data_list:
-		data['stress'] = None
-		frame = json2im(json.dumps(data))
-		frame = cv2.flip(frame,1)
-		frame = imutils.resize(frame, width=500,height=500)
-
-		(lBegin, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eyebrow"]
-		(rBegin, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eyebrow"]
-
-		#preprocessing the image
-		gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-
-		detections = detector(gray,0)
-		for detection in detections:
-			shape = predictor(frame,detection)
-			shape = face_utils.shape_to_np(shape)
-
-			leyebrow = shape[lBegin:lEnd]
-			reyebrow = shape[rBegin:rEnd]
-
-			reyebrowhull = cv2.convexHull(reyebrow)
-			leyebrowhull = cv2.convexHull(leyebrow)
-
-			cv2.drawContours(frame, [reyebrowhull], -1, (0, 255, 0), 1)
-			cv2.drawContours(frame, [leyebrowhull], -1, (0, 255, 0), 1)
-
-			distq = eye_brow_distance(leyebrow[-1],reyebrow[0])
-			stress_value,stress_label = normalize_values(points,distq)
-
-			sys.stdout.write(f"\rProcessed frame {data['index']}")
-			sys.stdout.flush()
-			
-			data['stress'] = float(stress_value)
-			
-	print("\nStress detection complete\n")
-
-	with open(img_stats, "w") as p: 
-		json.dump(data_list, p, indent = 4)
-
-
-gaze()
-pose()
-stress()
-
-print('Saved frame statistics to outputs/img_stats.json')
-print('Saved images to img_cap/')
-print('Done\n')
